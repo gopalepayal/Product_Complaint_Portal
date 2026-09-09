@@ -1,69 +1,43 @@
-import Image from "next/image";
+import Link from "next/link";
+import { ArrowRight, FilePlus2, Search, ShieldCheck, Users, MessageSquareText, CheckCircle2 } from "lucide-react";
+import { prisma } from "@/lib/prisma";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+async function getHomeData() {
+  try {
+    const [published, brands, products, resolved, recent] = await Promise.all([
+      prisma.complaint.count({ where: { status: { in: ["PUBLISHED", "ACKNOWLEDGED", "IN_PROGRESS", "RESOLVED", "CLOSED", "DISPUTED"] } } }),
+      prisma.brand.count(),
+      prisma.product.count(),
+      prisma.complaint.count({ where: { status: { in: ["RESOLVED", "CLOSED"] } } }),
+      prisma.complaint.findMany({
+        where: { status: { in: ["PUBLISHED", "ACKNOWLEDGED", "IN_PROGRESS", "RESOLVED", "CLOSED", "DISPUTED"] } },
+        orderBy: { updatedAt: "desc" },
+        take: 4,
+        include: { product: { include: { brand: true } }, _count: { select: { votes: true } } },
+      }),
+    ]);
+    return { published, brands, products, resolved, recent };
+  } catch {
+    return { published: 0, brands: 0, products: 0, resolved: 0, recent: [] };
+  }
+}
+
+const categories = ["Electronics", "Home Appliances", "Personal Care", "Automotive", "Food & Beverages", "Consumer Goods"];
+const statusLabel = (status: string) => status.replace(/_/g, " ");
+
+export default async function Home() {
+  const data = await getHomeData();
+  return <div className="bg-slate-50 text-slate-900">
+    <section className="overflow-hidden border-b border-slate-200 bg-[#e8f5f2]">
+      <div className="mx-auto grid max-w-7xl gap-12 px-4 py-20 sm:px-6 lg:grid-cols-[1.1fr_.9fr] lg:px-8 lg:py-28">
+        <div className="max-w-3xl"><span className="mb-6 inline-flex items-center gap-2 rounded-full border border-teal-200 bg-white px-3 py-1 text-xs font-bold uppercase tracking-widest text-teal-800"><ShieldCheck className="h-4 w-4" /> Independent consumer voice</span><h1 className="text-5xl font-black leading-[1.02] tracking-tight text-slate-950 sm:text-6xl">Your Complaint.<br /><span className="text-teal-700">Your Voice.</span><br />Better Products.</h1><p className="mt-7 max-w-xl text-lg leading-8 text-slate-600">A trusted place to report product complaints, share experiences, and hold brands accountable across India.</p><div className="mt-9 flex flex-col gap-3 sm:flex-row"><Link href="/submit" className="inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-5 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-orange-700"><FilePlus2 className="h-5 w-5" />File a Complaint</Link><Link href="/complaints" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3.5 text-sm font-bold text-slate-700 hover:border-teal-400 hover:text-teal-800"><Search className="h-5 w-5" />Search Complaints</Link></div></div>
+        <div className="relative flex min-h-[320px] items-center justify-center lg:min-h-0"><div className="absolute right-0 top-4 h-64 w-64 rounded-full border-[24px] border-orange-200/70" /><div className="relative w-full max-w-md rounded-2xl border border-white bg-white p-7 shadow-xl"><div className="mb-6 flex items-start justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-teal-700">Public record</p><h2 className="mt-2 text-2xl font-extrabold">Make the issue visible</h2></div><MessageSquareText className="h-9 w-9 text-orange-500" /></div><div className="space-y-3"><div className="h-3 w-4/5 rounded bg-slate-100" /><div className="h-3 w-full rounded bg-slate-100" /><div className="h-3 w-3/5 rounded bg-slate-100" /></div><div className="mt-8 grid grid-cols-3 gap-2 border-t border-slate-100 pt-5 text-center"><div><p className="text-lg font-black text-teal-700">01</p><p className="text-[10px] font-bold uppercase text-slate-500">Verify</p></div><div><p className="text-lg font-black text-teal-700">02</p><p className="text-[10px] font-bold uppercase text-slate-500">Review</p></div><div><p className="text-lg font-black text-teal-700">03</p><p className="text-[10px] font-bold uppercase text-slate-500">Resolve</p></div></div></div></div>
+      </div>
+    </section>
+    <section className="border-b border-slate-200 bg-white"><div className="mx-auto grid max-w-7xl grid-cols-2 divide-x divide-slate-200 px-4 py-8 sm:grid-cols-4 sm:px-6 lg:px-8">{[[data.published, "Published complaints"], [data.brands, "Brands represented"], [data.products, "Products listed"], [data.resolved, "Resolved complaints"]].map(([value, label]) => <div key={label as string} className="px-4 text-center first:pl-0 last:pr-0"><p className="text-3xl font-black text-slate-950">{value}</p><p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p></div>)}</div></section>
+    <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8"><div className="flex items-end justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-widest text-orange-600">Explore the platform</p><h2 className="mt-2 text-3xl font-black tracking-tight">Find what matters to you</h2></div><Link href="/complaints" className="hidden items-center gap-1 text-sm font-bold text-teal-700 sm:flex">Browse all <ArrowRight className="h-4 w-4" /></Link></div><div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{categories.map((category) => <Link key={category} href={`/complaints?category=${encodeURIComponent(category)}`} className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md"><div className="mb-8 flex h-10 w-10 items-center justify-center rounded-lg bg-teal-50 text-teal-700"><Search className="h-5 w-5" /></div><h3 className="font-bold group-hover:text-teal-800">{category}</h3><span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-slate-500">Search complaints <ArrowRight className="h-3 w-3" /></span></Link>)}</div></section>
+    <section className="border-y border-slate-200 bg-white"><div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8"><div className="flex items-end justify-between"><div><p className="text-sm font-bold uppercase tracking-widest text-orange-600">Latest public records</p><h2 className="mt-2 text-3xl font-black tracking-tight">Recent complaints</h2></div><Link href="/complaints" className="inline-flex items-center gap-1 text-sm font-bold text-teal-700">View all <ArrowRight className="h-4 w-4" /></Link></div>{data.recent.length ? <div className="mt-8 grid gap-4 lg:grid-cols-4">{data.recent.map((complaint) => <Link key={complaint.id} href={`/complaints/${complaint.complaintNumber}`} className="rounded-xl border border-slate-200 p-5 hover:border-teal-300 hover:shadow-sm"><div className="flex items-center justify-between gap-2"><span className="text-[11px] font-bold uppercase tracking-wide text-teal-700">{statusLabel(complaint.status)}</span><span className="text-xs text-slate-400">{complaint._count.votes} me too</span></div><h3 className="mt-4 line-clamp-2 font-bold">{complaint.title}</h3><p className="mt-2 text-sm text-slate-500">{complaint.product.brand.name} · {complaint.product.name}</p></Link>)}</div> : <div className="mt-8 rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500">Published complaints will appear here as the community grows.</div>}</div></section>
+    <section className="mx-auto grid max-w-7xl gap-10 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:px-8" id="how-it-works"><div><p className="text-sm font-bold uppercase tracking-widest text-orange-600">A clear process</p><h2 className="mt-2 text-3xl font-black">From product issue to public accountability</h2><div className="mt-8 space-y-5">{[["01", "Search the product", "Find the brand and model, or add a product that is not listed."], ["02", "File with confidence", "Share the facts, evidence, and the resolution you are seeking."], ["03", "Review and respond", "Our moderation team reviews submissions before publication."], ["04", "Follow the outcome", "Track status updates and verified brand responses in one place."]].map(([number, title, text]) => <div key={number} className="flex gap-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-700 text-xs font-black text-white">{number}</span><div><h3 className="font-bold">{title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{text}</p></div></div>)}</div></div><div className="rounded-2xl bg-slate-950 p-8 text-white"><Users className="h-8 w-8 text-orange-400" /><h2 className="mt-6 text-2xl font-black">Built for trust, not noise.</h2><p className="mt-4 leading-7 text-slate-300">Identity is verified privately. Public complaints are moderated. Brand representatives are reviewed before receiving an official badge. The result is a useful record for consumers and responsible brands.</p><Link href="/about" className="mt-8 inline-flex items-center gap-2 font-bold text-orange-400 hover:text-orange-300">Learn about our standards <ArrowRight className="h-4 w-4" /></Link></div></section>
+    <section className="bg-orange-600 px-4 py-16 text-center text-white"><CheckCircle2 className="mx-auto h-10 w-10" /><h2 className="mt-4 text-3xl font-black">Have a product problem?</h2><p className="mx-auto mt-3 max-w-xl text-orange-50">Make your voice count. A well-documented complaint can help other consumers and prompt a meaningful response.</p><Link href="/submit" className="mt-7 inline-flex rounded-lg bg-white px-5 py-3 font-bold text-orange-700 hover:bg-orange-50">File a Complaint</Link></section>
+  </div>;
 }

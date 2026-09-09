@@ -1,0 +1,477 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+  id           String   @id @default(cuid())
+  legalName    String
+  email        String?  @unique
+  phone        String?  @unique
+  displayName  String?
+  passwordHash String?
+  role         UserRole @default(CONSUMER)
+
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+  isActive   Boolean   @default(true)
+
+  anonymityDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Consumer complaints
+  complaints Complaint[] @relation("ComplaintConsumer")
+
+  // Brand representative relations
+  brandRepresentatives BrandRepresentative[] @relation("BrandRepUser")
+  brandRepReviews      BrandRepresentative[] @relation("BrandRepReviewedBy")
+
+  // Comments / votes
+  comments Comment[]
+  votes    Vote[]
+
+  // Reports
+  reports       Report[] @relation("ReportUser")
+  reportReviews Report[] @relation("ReportReviewedBy")
+
+  // Notifications
+  notifications Notification[]
+
+  // Complaint status changes
+  statusChanges StatusHistory[] @relation("StatusChangedBy")
+
+  // OTP / verification
+  verificationCodes VerificationCode[]
+}
+
+// ============================================================
+// OTP / VERIFICATION
+// ============================================================
+
+model VerificationCode {
+  id      String              @id @default(cuid())
+  userId  String?
+  email   String?
+  phone   String?
+  purpose VerificationPurpose
+
+  otpHash    String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([phone])
+  @@index([userId])
+  @@index([purpose])
+}
+
+// ============================================================
+// BRAND
+// ============================================================
+
+model Brand {
+  id                 String             @id @default(cuid())
+  name               String             @unique
+  slug               String             @unique
+  logoUrl            String?
+  category           String?
+  officialWebsite    String?
+  verificationStatus VerificationStatus @default(PENDING)
+  verifiedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products        Product[]
+  representatives BrandRepresentative[]
+  complaints      Complaint[]
+
+  @@index([name])
+  @@index([category])
+}
+
+// ============================================================
+// BRAND REPRESENTATIVE
+// ============================================================
+
+model BrandRepresentative {
+  id String @id @default(cuid())
+
+  userId  String
+  brandId String
+
+  companyName String?
+  workEmail   String
+  jobTitle    String?
+
+  proofDocument String?
+
+  status BrandRepStatus @default(PENDING)
+
+  reviewedById String?
+  reviewedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User  @relation("BrandRepUser", fields: [userId], references: [id], onDelete: Cascade)
+  brand      Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("BrandRepReviewedBy", fields: [reviewedById], references: [id])
+
+  comments Comment[]
+
+  statusChanges StatusHistory[] @relation("BrandRepStatusChanges")
+
+  @@unique([userId, brandId])
+  @@index([brandId])
+  @@index([status])
+  @@index([workEmail])
+}
+
+// ============================================================
+// PRODUCT
+// ============================================================
+
+model Product {
+  id String @id @default(cuid())
+
+  brandId String
+
+  name         String
+  type         String
+  category     String
+  modelName    String?
+  modelNumber  String?
+  serialNumber String?
+
+  imageUrl    String?
+  description String?
+
+  purchaseLocation String?
+
+  mergedIntoId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  complaints Complaint[]
+
+  mergedInto Product?  @relation("ProductMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom Product[] @relation("ProductMerge")
+
+  @@index([brandId])
+  @@index([name])
+  @@index([type])
+  @@index([category])
+  @@index([modelName])
+  @@index([modelNumber])
+}
+
+// ============================================================
+// COMPLAINT
+// ============================================================
+
+model Complaint {
+  id              String @id @default(cuid())
+  complaintNumber String @unique
+
+  consumerId String
+  productId  String
+  brandId    String
+
+  title       String
+  description String
+
+  incidentDate DateTime?
+  purchaseDate DateTime?
+
+  retailer        String?
+  purchaseCity    String?
+  purchaseState   String?
+  purchaseCountry String?
+
+  issueCategory String
+  severity      ComplaintSeverity @default(MEDIUM)
+
+  desiredResolution String?
+
+  isAnonymous Boolean @default(false)
+  displayName String?
+
+  status ComplaintStatus @default(PENDING_REVIEW)
+
+  moderationNote String?
+  publishedAt    DateTime?
+  resolvedAt     DateTime?
+  closedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  consumer User    @relation("ComplaintConsumer", fields: [consumerId], references: [id], onDelete: Cascade)
+  product  Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  brand    Brand   @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  attachments Attachment[]
+  comments    Comment[]
+  votes       Vote[]
+  reports     Report[]
+
+  statusHistory StatusHistory[]
+
+  notifications Notification[]
+
+  @@index([consumerId])
+  @@index([productId])
+  @@index([brandId])
+  @@index([status])
+  @@index([issueCategory])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+// ============================================================
+// ATTACHMENT
+// ============================================================
+
+model Attachment {
+  id String @id @default(cuid())
+
+  complaintId String
+
+  fileName   String
+  storageKey String
+  mimeType   String
+  fileSize   Int
+
+  createdAt DateTime @default(now())
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId])
+}
+
+// ============================================================
+// COMMENT / REPLY
+// ============================================================
+
+model Comment {
+  id String @id @default(cuid())
+
+  complaintId String
+  userId      String
+
+  brandRepresentativeId String?
+
+  content String
+
+  status ModerationStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  brandRepresentative BrandRepresentative? @relation(fields: [brandRepresentativeId], references: [id])
+
+  reports Report[]
+
+  @@index([complaintId])
+  @@index([userId])
+  @@index([brandRepresentativeId])
+  @@index([status])
+}
+
+// ============================================================
+// UPVOTE / ME TOO
+// ============================================================
+
+model Vote {
+  id String @id @default(cuid())
+
+  complaintId String
+  userId      String
+
+  createdAt DateTime @default(now())
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([complaintId, userId])
+  @@index([complaintId])
+  @@index([userId])
+}
+
+// ============================================================
+// REPORT / FLAG
+// ============================================================
+
+model Report {
+  id String @id @default(cuid())
+
+  complaintId String?
+  commentId   String?
+
+  userId String
+
+  reason      String
+  description String?
+
+  status ReportStatus @default(PENDING)
+
+  reviewedById String?
+  reviewedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  comment   Comment?   @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  user       User  @relation("ReportUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReportReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([complaintId])
+  @@index([commentId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================================
+// COMPLAINT STATUS HISTORY
+// ============================================================
+
+model StatusHistory {
+  id String @id @default(cuid())
+
+  complaintId String
+
+  status ComplaintStatus
+
+  note String?
+
+  changedById String?
+  brandRepId  String?
+
+  createdAt DateTime @default(now())
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  changedBy User? @relation("StatusChangedBy", fields: [changedById], references: [id])
+
+  brandRep BrandRepresentative? @relation("BrandRepStatusChanges", fields: [brandRepId], references: [id])
+
+  @@index([complaintId])
+  @@index([status])
+  @@index([changedById])
+  @@index([brandRepId])
+}
+
+// ============================================================
+// NOTIFICATION
+// ============================================================
+
+model Notification {
+  id String @id @default(cuid())
+
+  userId String
+
+  complaintId String?
+
+  title   String
+  message String
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([complaintId])
+  @@index([isRead])
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  CONSUMER
+  BRAND_REP
+  MODERATOR
+  ADMIN
+}
+
+enum VerificationPurpose {
+  REGISTRATION
+  PASSWORD_RESET
+  COMPLAINT_POSTING
+  PHONE_VERIFICATION
+  EMAIL_VERIFICATION
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum BrandRepStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  REVOKED
+}
+
+enum ComplaintSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ComplaintStatus {
+  SUBMITTED
+  PENDING_REVIEW
+  PUBLISHED
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+  DISPUTED
+}
+
+enum ModerationStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+  HIDDEN
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+  ACTION_TAKEN
+}
