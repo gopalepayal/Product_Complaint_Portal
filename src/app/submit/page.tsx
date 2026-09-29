@@ -10,6 +10,7 @@ import {
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { PRODUCT_CATEGORIES } from "@/lib/productCategories";
 
 const MAX_FILE_SIZE = 5000000;
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"];
@@ -41,7 +42,6 @@ const complaintSchema = z.object({
   consumerMobile: z.string().min(10, "Valid mobile number is required"),
   consumerCity: z.string().min(2, "City is required"),
   consumerState: z.string().min(2, "State is required"),
-  contactMethod: z.string().min(1, "Preferred contact method is required"),
 
   // Location (optional)
   purchaseCity: z.string().optional(),
@@ -91,9 +91,13 @@ function SubmitComplaintPageContent() {
   const [submitError, setSubmitError] = useState("");
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationNote, setLocationNote] = useState("");
-  
+
   // Catalog Products
   const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
+
+  // Previous public complaints for selected product
+  const [productComplaints, setProductComplaints] = useState<any[]>([]);
+  const [complaintsLoading, setComplaintsLoading] = useState(false);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -144,6 +148,22 @@ function SubmitComplaintPageContent() {
 
   const formData = watch();
 
+  // Fetch public complaints whenever a catalog product is selected
+  const selectedProductId = formData.productId;
+  useEffect(() => {
+    if (!selectedProductId || selectedProductId === "OTHER") {
+      setProductComplaints([]);
+      return;
+    }
+    setComplaintsLoading(true);
+    fetch(`/api/products/${selectedProductId}/complaints`)
+      .then(r => r.json())
+      .then(data => {
+        setProductComplaints(data.complaints ?? []);
+      })
+      .catch(() => setProductComplaints([]))
+      .finally(() => setComplaintsLoading(false));
+  }, [selectedProductId]);
 
   const handleNext = async () => {
     // Validate current step fields before moving next
@@ -154,14 +174,15 @@ function SubmitComplaintPageContent() {
     } else if (currentStep === 2) {
       fieldsToValidate = ['issueCategory', 'title', 'description', 'incidentDate', 'severity', 'whatHappened', 'expectedResolution'];
     } else if (currentStep === 4) {
-      fieldsToValidate = ['consumerName', 'consumerEmail', 'consumerMobile', 'consumerCity', 'consumerState', 'contactMethod'];
+      fieldsToValidate = ['consumerName', 'consumerEmail', 'consumerMobile', 'consumerCity', 'consumerState'];
     }
 
     const isValid = await trigger(fieldsToValidate);
-    if (isValid) {
-      setCurrentStep((prev) => prev + 1);
-      window.scrollTo(0, 0);
-    }
+    if (!isValid) return;
+
+    setSubmitError("");
+    setCurrentStep((prev) => prev + 1);
+    window.scrollTo(0, 0);
   };
 
   const handlePrev = () => {
@@ -185,9 +206,10 @@ function SubmitComplaintPageContent() {
   };
 
   const onSubmit = async (data: ComplaintFormValues) => {
+    // Guard against double-submission (e.g. rapid double-click).
+    // isSubmitting is set back to false in the finally block below.
+    if (isSubmitting) return;
     setIsSubmitting(true);
-    setSubmitError("");
-    
     try {
       const payload = { 
         complaintData: data,
@@ -282,7 +304,7 @@ function SubmitComplaintPageContent() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
               </span>
-              <span className="text-sm font-medium text-blue-700">Status: Submitted</span>
+              <span className="text-sm font-medium text-blue-700">Status: Under Review</span>
             </div>
           </div>
           
@@ -351,6 +373,29 @@ function SubmitComplaintPageContent() {
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="md:col-span-2">
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Product Category *</label>
+                      <select 
+                        {...register("productCategory", {
+                          onChange: (e) => {
+                            setValue("productId", "");
+                            setValue("productName", "");
+                            setValue("brandName", "");
+                            setValue("productVariant", "");
+                            setValue("productPrice", "");
+                          }
+                        })}
+                        className="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-3 bg-slate-50 border outline-none appearance-none text-slate-900"
+                        disabled={isOrderLinked}
+                      >
+                        <option value="">-- Choose a Category --</option>
+                        {PRODUCT_CATEGORIES.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      {errors.productCategory && <p className="text-red-500 text-xs mt-1">{errors.productCategory.message}</p>}
+                    </div>
+
+                    <div className="md:col-span-2">
                       <label className="block text-sm font-semibold text-slate-700 mb-2">Select Product from Catalog *</label>
                       {isOrderLinked ? (
                         <input {...register("productName")} readOnly className="w-full rounded-lg border-slate-300 shadow-sm px-4 py-3 bg-slate-100 border outline-none text-slate-900 cursor-not-allowed" />
@@ -362,7 +407,6 @@ function SubmitComplaintPageContent() {
                             setValue("productId", pId);
                             if (pId === "OTHER") {
                               setValue("productName", "");
-                              setValue("productCategory", "");
                               setValue("productVariant", "");
                               setValue("productPrice", "");
                               setValue("brandName", "");
@@ -370,18 +414,17 @@ function SubmitComplaintPageContent() {
                               const p = catalogProducts.find(x => x.id === pId);
                               if (p) {
                                 setValue("productName", p.name);
-                                setValue("productCategory", p.category);
                                 setValue("productVariant", p.size || "");
                                 setValue("productPrice", p.price == null ? "" : String(p.price));
                                 setValue("brandName", p.brand?.name || "");
-                                trigger(['productName', 'productCategory', 'productPrice', 'brandName']);
+                                trigger(['productName', 'productPrice', 'brandName']);
                               }
                             }
                           }}
                         >
                           <option value="">-- Choose a Product --</option>
-                          {catalogProducts.map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.category})</option>
+                          {catalogProducts.filter(p => !formData.productCategory || p.category === formData.productCategory).map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
                           ))}
                           <option value="OTHER">Other / Product Not Listed</option>
                         </select>
@@ -389,6 +432,7 @@ function SubmitComplaintPageContent() {
                       
                       {/* Hidden field to keep productName required validation working if selected */}
                       <input type="hidden" {...register("productName")} />
+                      <input type="hidden" {...register("productId")} />
                       {errors.productName && <p className="text-red-500 text-xs mt-1">Please select a product.</p>}
                     </div>
                     {formData.productId === "OTHER" && (
@@ -399,13 +443,18 @@ function SubmitComplaintPageContent() {
                     )}
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">Linked Brand *</label>
-                      <input {...register("brandName")} readOnly={formData.productId !== "OTHER"} className="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-3 bg-slate-50 border outline-none text-slate-900" placeholder="e.g. Acme Corp" />
+                      <input
+                        {...register("brandName", {
+                          onChange: (e) => {
+                            if (formData.productId && formData.productId !== "OTHER") {
+                              setValue("productId", "OTHER");
+                            }
+                          },
+                        })}
+                        className="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-3 bg-slate-50 border outline-none text-slate-900"
+                        placeholder="e.g. Acme Corp"
+                      />
                       {errors.brandName && <p className="text-red-500 text-xs mt-1">{errors.brandName.message}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">Product Category *</label>
-                      <input {...register("productCategory")} readOnly={formData.productId !== "OTHER"} className="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-3 bg-slate-50 border outline-none text-slate-900" placeholder="Derived from the selected product" />
-                      {errors.productCategory && <p className="text-red-500 text-xs mt-1">{errors.productCategory.message}</p>}
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">Variant/Model (Optional)</label>
@@ -443,6 +492,61 @@ function SubmitComplaintPageContent() {
                       <input {...register("batchNumber")} className="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-3 bg-slate-50 border outline-none text-slate-900" placeholder="Usually found near barcode" />
                     </div>
                   </div>
+
+                  {/* ── Other Customer Complaints ── */}
+                  {formData.productId && formData.productId !== "OTHER" && (
+                    <div className="mt-8 border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="bg-slate-100 px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+                        <h3 className="font-bold text-slate-800 text-sm">Other Customer Complaints</h3>
+                        <span className="text-xs text-slate-500">For the same product only</span>
+                      </div>
+
+                      {complaintsLoading ? (
+                        <div className="px-5 py-6 text-center text-sm text-slate-400">
+                          Loading previous complaints…
+                        </div>
+                      ) : productComplaints.length === 0 ? (
+                        <div className="px-5 py-6 text-center text-sm text-slate-400">
+                          No previous customer complaints for this product.
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-slate-100">
+                          {productComplaints.map((c: any) => (
+                            <li key={c.id} className="px-5 py-4">
+                              <div className="flex items-start justify-between gap-4 flex-wrap">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold text-slate-500 mb-0.5">
+                                    {c.displayName || "Consumer"}
+                                  </p>
+                                  <p className="text-sm font-bold text-slate-800 truncate">{c.title}</p>
+                                  <p className="text-xs text-slate-600 mt-1 line-clamp-2">{c.description}</p>
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {c.issueCategory && (
+                                      <span className="inline-block bg-slate-100 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-full border border-slate-200">
+                                        {c.issueCategory}
+                                      </span>
+                                    )}
+                                    <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                                      c.status === "RESOLVED" || c.status === "CLOSED"
+                                        ? "bg-green-50 text-green-700 border-green-200"
+                                        : c.status === "IN_PROGRESS" || c.status === "ACKNOWLEDGED"
+                                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                                        : "bg-amber-50 text-amber-700 border-amber-200"
+                                    }`}>
+                                      {c.status.replace(/_/g, " ")}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="text-[11px] text-slate-400 whitespace-nowrap shrink-0 mt-1">
+                                  {new Date(c.createdAt).toLocaleDateString("en-IN")}
+                                </p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -583,20 +687,6 @@ function SubmitComplaintPageContent() {
                       <label className="block text-sm font-semibold text-slate-700 mb-2">State/Region *</label>
                       <input {...register("consumerState")} className="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-3 bg-slate-50 border outline-none text-slate-900" placeholder="e.g. NY" />
                       {errors.consumerState && <p className="text-red-500 text-xs mt-1">{errors.consumerState.message}</p>}
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">Preferred Contact Method *</label>
-                      <div className="flex gap-6">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" value="Email" {...register("contactMethod")} className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500" />
-                          <span className="text-slate-700">Email</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" value="Phone" {...register("contactMethod")} className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500" />
-                          <span className="text-slate-700">Phone Call</span>
-                        </label>
-                      </div>
-                      {errors.contactMethod && <p className="text-red-500 text-xs mt-1">{errors.contactMethod.message}</p>}
                     </div>
                   </div>
                 </div>

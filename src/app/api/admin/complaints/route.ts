@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import * as z from "zod";
 import type { ComplaintStatus } from "@prisma/client";
-import { sendComplaintStatusUpdate } from "@/lib/notifications";
+import { sendComplaintStatusUpdate, sendComplaintSubmittedByAdmin } from "@/lib/notifications";
 
 // GET /api/admin/complaints?status=&page=&search=
 export async function GET(req: NextRequest) {
@@ -87,14 +87,31 @@ export async function PATCH(req: NextRequest) {
             },
           },
         },
+        include: {
+          product: { select: { name: true } },
+          brand: { select: { name: true } },
+        }
       });
-      const complaintOwner = await prisma.user.findUnique({
-        where: { id: complaint.consumerId },
-        select: { email: true },
-      });
-      if (complaintOwner?.email) {
+      const complaintOwner = complaint.consumerId
+        ? await prisma.user.findUnique({
+            where: { id: complaint.consumerId },
+            select: { email: true, phone: true },
+          })
+        : null;
+      const ownerEmail = complaint.contactEmail ?? complaintOwner?.email ?? null;
+      const ownerPhone = complaint.contactPhone ?? complaintOwner?.phone ?? null;
+
+      if (status === "SUBMITTED" && complaint.status === "UNDER_REVIEW") {
+        await sendComplaintSubmittedByAdmin({
+          contactEmail: ownerEmail,
+          complaintNumber: complaint.complaintNumber,
+          productName: updated.product?.name || "Unknown Product",
+          brandName: updated.brand?.name || "Unknown Brand",
+        });
+      } else {
         await sendComplaintStatusUpdate({
-          to: complaintOwner.email,
+          to: ownerEmail,
+          phone: ownerPhone,
           complaintNumber: complaint.complaintNumber,
           previousStatus: complaint.status,
           newStatus: status,
@@ -102,6 +119,7 @@ export async function PATCH(req: NextRequest) {
           changedAt: updated.updatedAt,
         });
       }
+
       return NextResponse.json({ success: true, complaint: updated });
     }
 

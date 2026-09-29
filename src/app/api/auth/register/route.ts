@@ -39,8 +39,9 @@ export async function POST(req: NextRequest) {
         email,
         passwordHash,
         role: "CONSUMER",
-        isVerified: true,
-        verifiedAt: new Date(),
+        emailVerified: false,
+        phoneVerified: false,
+        isVerified: false,
         isActive: true,
       },
     });

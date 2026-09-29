@@ -1,11 +1,162 @@
 "use client";
+
 import { FormEvent, useState } from "react";
 import { Search, CheckCircle2 } from "lucide-react";
 
-type Complaint = { complaintNumber: string; title: string; status: string; product: { name: string; brand: { name: string } }; statusHistory: { id: string; status: string; note: string | null; createdAt: string }[] };
-const label = (value: string) => value.replace(/_/g, " ");
+type TrackComplaint = {
+  status: string;
+  title: string;
+  product: {
+    name: string;
+    brand: {
+      name: string;
+    };
+  };
+  statusHistory: {
+    id: string;
+    status: string;
+    note: string | null;
+    createdAt: string;
+  }[];
+};
+
+function label(status: string) {
+  return status
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export default function TrackPage() {
-  const [number, setNumber] = useState(""); const [complaint, setComplaint] = useState<Complaint | null>(null); const [error, setError] = useState("");
-  async function search(event: FormEvent) { event.preventDefault(); setError(""); setComplaint(null); const response = await fetch(`/api/track?number=${encodeURIComponent(number)}`); const data = await response.json(); if (!response.ok) setError(data.error || "Complaint not found."); else setComplaint(data); }
-  return <main className="min-h-screen bg-slate-50 px-4 py-16"><div className="mx-auto max-w-2xl"><p className="text-sm font-bold uppercase tracking-widest text-orange-600">Status tracker</p><h1 className="mt-2 text-4xl font-black">Track a complaint</h1><p className="mt-3 text-slate-600">Enter your complaint number to view its current status and timeline.</p><form onSubmit={search} className="mt-8 flex gap-3"><label htmlFor="number" className="sr-only">Complaint number</label><input id="number" value={number} onChange={(event) => setNumber(event.target.value)} required placeholder="e.g. CMP-20260908-AB12" className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-4 py-3 outline-none focus:border-teal-600" /><button className="flex items-center gap-2 rounded-lg bg-teal-700 px-5 py-3 font-bold text-white hover:bg-teal-800"><Search className="h-4 w-4" />Track</button></form>{error && <p className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">{error}</p>}{complaint && <section className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"><span className="text-xs font-bold uppercase tracking-widest text-teal-700">{label(complaint.status)}</span><h2 className="mt-3 text-2xl font-black">{complaint.title}</h2><p className="mt-2 text-slate-600">{complaint.product.brand.name} · {complaint.product.name}</p><div className="mt-8 space-y-5 border-l-2 border-teal-100 pl-5">{complaint.statusHistory.map((item) => <div key={item.id} className="relative"><CheckCircle2 className="absolute -left-[31px] top-0 h-5 w-5 rounded-full bg-white text-teal-700" /><p className="font-bold">{label(item.status)}</p>{item.note && <p className="mt-1 text-sm text-slate-600">{item.note}</p>}<p className="mt-1 text-xs text-slate-400">{new Date(item.createdAt).toLocaleDateString("en-IN")}</p></div>)}</div></section>}</div></main>;
+  const [number, setNumber] = useState("");
+  const [complaint, setComplaint] =
+    useState<TrackComplaint | null>(null);
+  const [error, setError] = useState("");
+
+  async function search(event: FormEvent) {
+    event.preventDefault();
+
+    setError("");
+    setComplaint(null);
+
+    const response = await fetch(
+      `/api/track?number=${encodeURIComponent(number)}`
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setError(data.error || "Complaint not found.");
+    } else {
+      setComplaint(data);
+    }
+  }
+
+  return (
+    <main
+      className="min-h-screen bg-slate-50 px-4 py-16 text-slate-900"
+      style={{
+        fontFamily:
+          "Arial, Helvetica, sans-serif",
+      }}
+    >
+      <div className="mx-auto max-w-2xl">
+        <p className="text-sm font-bold uppercase tracking-widest text-orange-600">
+          Status tracker
+        </p>
+
+        <h1 className="mt-2 text-4xl font-black text-slate-950">
+          Track a complaint
+        </h1>
+
+        <p className="mt-3 text-slate-600">
+          Enter your complaint number to view its current
+          status and timeline.
+        </p>
+
+        <form
+          onSubmit={search}
+          className="mt-8 flex gap-3"
+        >
+          <label
+            htmlFor="number"
+            className="sr-only"
+          >
+            Complaint number
+          </label>
+
+          <input
+            id="number"
+            value={number}
+            onChange={(event) =>
+              setNumber(event.target.value)
+            }
+            required
+            placeholder="e.g. CMP-20260908-AB12"
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+          />
+
+          <button
+            type="submit"
+            className="flex items-center gap-2 rounded-lg bg-teal-700 px-5 py-3 font-bold text-white hover:bg-teal-800"
+          >
+            <Search className="h-4 w-4" />
+            Track
+          </button>
+        </form>
+
+        {error && (
+          <p className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+
+        {complaint && (
+          <section className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <span className="text-xs font-bold uppercase tracking-widest text-teal-700">
+              {label(complaint.status)}
+            </span>
+
+            <h2 className="mt-3 text-2xl font-black text-slate-950">
+              {complaint.title}
+            </h2>
+
+            <p className="mt-2 text-slate-600">
+              {complaint.product.brand.name} ·{" "}
+              {complaint.product.name}
+            </p>
+
+            <div className="mt-8 space-y-5 border-l-2 border-teal-100 pl-5">
+              {complaint.statusHistory.map(
+                (item) => (
+                  <div
+                    key={item.id}
+                    className="relative"
+                  >
+                    <CheckCircle2 className="absolute -left-[31px] top-0 h-5 w-5 rounded-full bg-white text-teal-700" />
+
+                    <p className="font-bold text-slate-900">
+                      {label(item.status)}
+                    </p>
+
+                    {item.note && (
+                      <p className="mt-1 text-sm text-slate-600">
+                        {item.note}
+                      </p>
+                    )}
+
+                    <p className="mt-1 text-xs text-slate-400">
+                      {new Date(
+                        item.createdAt
+                      ).toLocaleDateString("en-IN")}
+                    </p>
+                  </div>
+                )
+              )}
+            </div>
+          </section>
+        )}
+      </div>
+    </main>
+  );
 }

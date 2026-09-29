@@ -1,6 +1,6 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# =========================================================
+# Dependencies
+# =========================================================
 /node_modules
 /.pnp
 .pnp.*
@@ -10,34 +10,134 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
+
+# =========================================================
+# Testing
+# =========================================================
 /coverage
 
-# next.js
+
+# =========================================================
+# Next.js
+# =========================================================
 /.next/
 /out/
 
-# production
+
+# =========================================================
+# Production build
+# =========================================================
 /build
 
-# misc
+
+# =========================================================
+# Misc
+# =========================================================
 .DS_Store
 *.pem
 
-# debug
+
+# =========================================================
+# Debug logs
+# =========================================================
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
-# env files (can opt-in for committing if needed)
+
+# =========================================================
+# Environment variables / Secrets
+# =========================================================
 .env*
+!.env.example
 
-# vercel
+
+# =========================================================
+# Vercel
+# =========================================================
 .vercel
 
-# typescript
+
+# =========================================================
+# TypeScript
+# =========================================================
 *.tsbuildinfo
 next-env.d.ts
 
+
+# =========================================================
+# Generated Prisma files
+# =========================================================
 /src/generated/prisma
+
+
+# =========================================================
+# Local Prisma SQLite database
+# IMPORTANT:
+# Do NOT upload local portal.db to GitHub.
+# Production database will be configured separately.
+# =========================================================
+/prisma/*.db
+/prisma/*.db-journal
+/prisma/*.db.backup*
+/prisma/backups/
+
+
+# =========================================================
+# Local backup files
+# =========================================================
+*.backup
+*.backup-*
+*.bak
+
+
+# =========================================================
+# Local debug / temporary scripts
+# =========================================================
+/scratch/
+
+temp.ts
+test.js
+test.ts
+test_flow.cjs
+
+simulate.cjs
+simulate.ts
+
+check-db.js
+debug-complaints.cjs
+dump_complaints.cjs
+dump_recent.cjs
+
+download_images.cjs
+download_remaining.cjs
+download_with_puppeteer.cjs
+scrape_images.cjs
+
+apply_images.cjs
+fix_images.py
+
+update-images.js
+update_all_images.cjs
+update_status.cjs
+
+
+# =========================================================
+# Playwright / Puppeteer local artifacts
+# =========================================================
+/playwright-report/
+/test-results/
+/blob-report/
+
+
+# =========================================================
+# OS / editor files
+# =========================================================
+.vscode/*
+!.vscode/settings.json
+
+.idea/
+*.swp
+*.swo

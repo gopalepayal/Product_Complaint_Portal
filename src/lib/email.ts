@@ -1,4 +1,17 @@
-import { Resend } from "resend";
+ 
+import nodemailer from "nodemailer";
+
+function isPlaceholder(value: string | undefined): boolean {
+  if (!value) return true;
+  const lower = value.trim().toLowerCase();
+  return (
+    lower.includes("yourgmail") ||
+    lower.includes("your-16-character") ||
+    lower.includes("your-app-password") ||
+    lower.includes("example.com") ||
+    lower.includes("placeholder")
+  );
+}
 
 export async function sendEmail({
   to,
@@ -11,54 +24,71 @@ export async function sendEmail({
   text: string;
   html?: string;
 }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL?.trim();
+  const gmailUser = process.env.GMAIL_USER?.trim();
+  const rawAppPassword = process.env.GMAIL_APP_PASSWORD?.trim();
 
-  if (!fromEmail) {
+  // Validate presence and non-placeholder status of Gmail credentials
+  if (!gmailUser || isPlaceholder(gmailUser)) {
+    console.error("[Gmail SMTP Configuration Error] GMAIL_USER is missing or set to placeholder in .env");
     throw new Error(
-      "Application code is ready, but Resend domain verification is required before OTP/confirmation emails can be delivered to arbitrary user email addresses. Set RESEND_FROM_EMAIL to a sender address from your verified Resend domain."
-    );
-  }
-  
-  if (!apiKey || apiKey.includes("your-resend-api-key") || apiKey.includes("paste_your_api_key")) {
-    throw new Error(
-      "Resend API key is not configured. Set RESEND_API_KEY on the server before sending email."
+      "GMAIL_USER is not configured in .env. Please set your actual Gmail address."
     );
   }
 
-  // Initialize inside the function to prevent Next.js from crashing the entire route file
-  const resend = new Resend(apiKey);
+  if (!rawAppPassword || isPlaceholder(rawAppPassword)) {
+    console.error("[Gmail SMTP Configuration Error] GMAIL_APP_PASSWORD is missing or set to placeholder in .env");
+    throw new Error(
+      "GMAIL_APP_PASSWORD is not configured in .env. Please set your 16-character Google App Password."
+    );
+  }
+
+  // Strip spaces from Google App Password (e.g. "abcd efgh ijkl mnop" -> "abcdefghijklmnop")
+  const gmailAppPassword = rawAppPassword.replace(/\s+/g, "");
+
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true, // Use SSL/TLS
+    auth: {
+      user: gmailUser,
+      pass: gmailAppPassword,
+    },
+  });
+
+  const maskedEmail = gmailUser.replace(/(?<=.{2}).(?=.*@)/g, "*");
+  console.log(`[Gmail SMTP Request] Attempting to send email to ${to} via ${maskedEmail}`);
 
   try {
-    const { data, error } = await resend.emails.send({
-      from: fromEmail,
+    const info = await transporter.sendMail({
+      from: `"Product Complaint Portal" <${gmailUser}>`,
       to,
       subject,
       text,
       html: html || text,
+      // RFC-standard headers that signal this is a legitimate automated notification.
+      // These are evaluated by Gmail's spam classifier alongside SPF/DKIM/DMARC.
+      // - Auto-Submitted: RFC 3834 — tells receiving MTA this is system-generated (not forged human)
+      // - Precedence: standard signal for automated/transactional mail
+      // - X-Mailer: identifies the sending application
+      headers: {
+        "Auto-Submitted": "auto-generated",
+        "Precedence": "bulk",
+        "X-Mailer": "Product-Complaint-Portal/1.0",
+      },
     });
 
-    if (error) {
-      console.error("Resend API Error:", error);
-      throw new Error(`Failed to send email: ${error.message}`);
-    }
-
-    console.log("Email sent successfully! ID:", data?.id);
+    console.log(`[Gmail SMTP Success] Email delivered. MessageID: ${info.messageId}`);
     return true;
-  } catch (error: any) {
-    console.error("Error sending email via Resend:", error);
-    const message = error.message || "Unknown error";
-    const lowerMessage = message.toLowerCase();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[Gmail SMTP Failure] Failed to send email to ${to}:`, message);
 
-    if (lowerMessage.includes("testing") || lowerMessage.includes("only send") || lowerMessage.includes("recipient")) {
+    if (message.includes("535") || message.includes("BadCredentials") || message.includes("Username and Password not accepted")) {
       throw new Error(
-        "Resend rejected the sender because the account or domain cannot deliver to this recipient. Verify your sending domain in Resend and set RESEND_FROM_EMAIL to an address on that domain. Details: " +
-          message
+        "Gmail SMTP Authentication Failed (535 Bad Credentials). Please check your GMAIL_USER and 16-character GMAIL_APP_PASSWORD in your .env file."
       );
     }
 
-    throw new Error(
-      "Failed to send email. Please check your Resend configuration. Details: " + message
-    );
+    throw error;
   }
 }

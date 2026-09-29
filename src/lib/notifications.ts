@@ -1,9 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Product Complaint Portal transactional email notifications
  * All emails use the existing Resend integration via sendEmail().
  * NEVER log OTPs, API keys, or passwords.
  */
 import { sendEmail } from "./email";
+import { sendTransactionalSMS } from "./msg91";
+
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -23,10 +26,16 @@ function portalFooter() {
 }
 
 function wrap(body: string) {
-  return `<div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Product Complaint Portal</title></head>
+<body style="margin:0;padding:16px;background:#f8fafc;">
+<div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#ffffff;">
     ${portalHeader()}
     <div style="padding:28px;">${body}</div>
-  </div>`;
+  </div>
+</body>
+</html>`;
 }
 
 function infoBox(rows: { label: string; value: string }[]) {
@@ -46,7 +55,7 @@ function ctaButton(label: string, url: string) {
 }
 
 // ─────────────────────────────────────────────
-// 1. COMPLAINT SUBMITTED CONFIRMATION
+// 1. COMPLAINT SUBMITTED CONFIRMATION (email)
 // ─────────────────────────────────────────────
 export async function sendComplaintConfirmation(opts: {
   to: string;
@@ -54,23 +63,24 @@ export async function sendComplaintConfirmation(opts: {
   complaintNumber: string;
   complaintTitle: string;
   productName: string;
+  brandName: string;
   submittedAt: Date;
 }) {
-  const { to, consumerName, complaintNumber, productName, submittedAt } = opts;
-  const subject = `Your Complaint Has Been Submitted Successfully - ${complaintNumber}`;
+  const { to, consumerName, complaintNumber, productName, brandName, submittedAt } = opts;
+  const subject = `Complaint Submitted Successfully – ${complaintNumber}`;
 
   const body = `
     <p>Dear ${consumerName},</p>
-    <p><strong>Complaint Submitted Successfully</strong></p>
-    <p>Thank you for submitting your complaint to <strong>Product Complaint Portal</strong>. Your submission has been successfully received.</p>
+    <p>Your complaint has been submitted successfully and is currently <strong>Under Review</strong>.</p>
     ${infoBox([
-      { label: "Complaint Number", value: complaintNumber },
+      { label: "Complaint ID", value: complaintNumber },
       { label: "Complaint Title", value: opts.complaintTitle },
       { label: "Product", value: productName },
+      { label: "Brand", value: brandName },
       { label: "Submitted On", value: submittedAt.toLocaleString("en-IN") },
-      { label: "Current Status", value: "Pending Review" },
+      { label: "Current Status", value: "Under Review" },
     ])}
-    <p>Your complaint is awaiting moderation and review. We will contact you if any additional information is required.</p>
+    <p>Your complaint has been received and is currently Under Review. We will notify you when the status changes.</p>
     ${ctaButton("Track Your Complaint", `${APP_URL}/track?number=${complaintNumber}`)}
     ${portalFooter()}
   `;
@@ -79,12 +89,186 @@ export async function sendComplaintConfirmation(opts: {
     await sendEmail({
       to,
       subject,
-      text: `Complaint Submitted Successfully\nComplaint Number: ${complaintNumber}\nComplaint Title: ${opts.complaintTitle}\nCurrent Status: Pending Review\nYour complaint is awaiting moderation and review.`,
+      text: [
+        `Dear ${consumerName},`,
+        "",
+        "Your complaint has been submitted successfully and is currently Under Review.",
+        "",
+        `Complaint ID: ${complaintNumber}`,
+        `Product: ${productName}`,
+        `Brand: ${brandName}`,
+        "Status: Under Review",
+        "",
+        "Product Complaint Portal",
+      ].join("\n"),
       html: wrap(body),
     });
-  } catch (e: any) {
-    console.error(`[EMAIL] Complaint confirmation failed for ${complaintNumber}:`, e.message);
-    throw new Error(`Complaint was saved, but the confirmation email could not be sent. Details: ${e.message}`);
+  } catch (e: unknown) {
+    console.error(`[EMAIL] Complaint confirmation failed for ${complaintNumber}:`, e);
+    // Do not re-throw — email failure must never block the complaint save
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 1b. UNIFIED COMPLAINT NOTIFICATION (dispatches per preference)
+// ─────────────────────────────────────────────────────────────
+/**
+ * Sends a confirmation notification automatically.
+ * Emails are sent if an email address is provided.
+ * SMS are sent if a phone number is provided.
+ */
+export async function sendComplaintNotification(opts: {
+  email?: string | null;
+  phone?: string | null;
+  consumerName: string;
+  complaintNumber: string;
+  complaintTitle: string;
+  productName: string;
+  brandName: string;
+  submittedAt: Date;
+}) {
+  let emailSent = false;
+  let smsSent = false;
+
+  // ── Email ──────────────────────────────────────────────────
+  if (opts.email) {
+    const validEmail = opts.email.trim();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(validEmail)) {
+      console.log(`[EMAIL] Attempting to send complaint confirmation to: ${validEmail} for ${opts.complaintNumber}`);
+      try {
+        const subject = `Complaint Submitted Successfully - ${opts.complaintNumber}`;
+        const text = [
+          `Dear Customer,`,
+          ``,
+          `Your complaint has been submitted successfully and is currently Under Review.`,
+          ``,
+          `Complaint ID: ${opts.complaintNumber}`,
+          `Product: ${opts.productName}`,
+          `Brand: ${opts.brandName}`,
+          `Status: Under Review`,
+          ``,
+          `Our team will review your complaint and you will receive the next update shortly.`,
+          ``,
+          `Regards,`,
+          `Product Complaint Portal`,
+        ].join(`\n`);
+
+        const html = wrap(
+          `<p>Dear Customer,</p>
+           <p>Your complaint has been submitted successfully and is currently <strong>Under Review</strong>.</p>
+           ${infoBox([
+             { label: "Complaint ID", value: opts.complaintNumber },
+             { label: "Product",      value: opts.productName },
+             { label: "Brand",        value: opts.brandName },
+             { label: "Status",       value: "Under Review" },
+           ])}
+           <p>Our team will review your complaint and you will receive the next update shortly.</p>
+           <p>Regards,<br/>Product Complaint Portal</p>
+           ${portalFooter()}`
+        );
+
+        await sendEmail({
+          to: validEmail,
+          subject,
+          text,
+          html,
+        });
+        emailSent = true;
+        console.log(`[EMAIL] ✅ Complaint confirmation sent successfully to: ${validEmail} for ${opts.complaintNumber}`);
+      } catch (err: unknown) {
+        console.error(`[EMAIL] ❌ SMTP FAILED — complaint: ${opts.complaintNumber} | recipient: ${validEmail}`, err);
+      }
+    } else {
+      console.error(`[EMAIL] ❌ Invalid email address — skipping send. Value received: "${validEmail}" for ${opts.complaintNumber}`);
+    }
+  } else {
+    console.warn(`[EMAIL] No email address provided — skipping email notification for ${opts.complaintNumber}`);
+  }
+
+
+  // ── SMS ────────────────────────────────────────────────────
+  if (opts.phone) {
+    const messageText = `Your complaint has been submitted successfully.\n\nComplaint ID: ${opts.complaintNumber}\nStatus: Under Review\nProduct: ${opts.productName}\nBrand: ${opts.brandName}\n\nWe have received your complaint and it is currently under review.`;
+    const result = await sendTransactionalSMS(opts.phone, messageText);
+    if (!result.success) {
+      console.warn(
+        `[NOTIFY] SMS notification failed for ${opts.complaintNumber}: ${result.error}`
+      );
+    } else {
+      smsSent = true;
+    }
+  }
+
+  return { emailSent, smsSent };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 1c. ADMIN SUBMIT – second email sent only after admin clicks
+//     "Submit" and the DB status update succeeds.
+// ─────────────────────────────────────────────────────────────
+/**
+ * Send the second customer-facing email when an admin submits/publishes a complaint.
+ * NEVER call this on the initial customer submission; call it only after the admin action.
+ * recipient = complaint.contactEmail (dynamic, never GMAIL_USER)
+ */
+export async function sendComplaintSubmittedByAdmin(opts: {
+  contactEmail: string | null | undefined;
+  complaintNumber: string;
+  productName: string;
+  brandName: string;
+}): Promise<{ emailSent: boolean }> {
+  const { contactEmail, complaintNumber, productName, brandName } = opts;
+
+  if (!contactEmail) {
+    console.warn(`[EMAIL] No contactEmail on complaint ${complaintNumber}; skipping admin-submit email.`);
+    return { emailSent: false };
+  }
+
+  const recipient = contactEmail.trim();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    console.error(`[EMAIL] Invalid contactEmail "${recipient}" for complaint ${complaintNumber}; skipping admin-submit email.`);
+    return { emailSent: false };
+  }
+
+  const subject = `Your Complaint Has Been Submitted – ${complaintNumber}`;
+
+  const text = [
+    "Dear Customer,",
+    "",
+    "Your complaint has been successfully reviewed and submitted by our team.",
+    "",
+    `Complaint ID: ${complaintNumber}`,
+    `Product: ${productName}`,
+    `Brand: ${brandName}`,
+    "Status: Submitted",
+    "",
+    "You will receive the next follow-up/update shortly.",
+    "",
+    "Regards,",
+    "Product Complaint Portal",
+  ].join("\n");
+
+  const html = wrap(
+    `<p>Dear Customer,</p>
+     <p>Your complaint has been successfully reviewed and submitted by our team.</p>
+     ${infoBox([
+       { label: "Complaint ID", value: complaintNumber },
+       { label: "Product",      value: productName },
+       { label: "Brand",        value: brandName },
+       { label: "Status",       value: "Submitted" },
+     ])}
+     <p>You will receive the next follow-up/update shortly.</p>
+     <p>Regards,<br/>Product Complaint Portal</p>`
+  );
+
+  try {
+    await sendEmail({ to: recipient, subject, text, html });
+    console.log(`[EMAIL] Admin-submit confirmation sent to ${recipient} for ${complaintNumber}`);
+    return { emailSent: true };
+  } catch (err: unknown) {
+    console.error(`[EMAIL] SMTP Error: Failed to send admin-submit email to ${recipient} for ${complaintNumber}:`, err);
+    return { emailSent: false };
   }
 }
 
@@ -92,14 +276,23 @@ export async function sendComplaintConfirmation(opts: {
 // 2. COMPLAINT STATUS CHANGED
 // ─────────────────────────────────────────────
 export async function sendComplaintStatusUpdate(opts: {
-  to: string;
+  to?: string | null;
+  phone?: string | null;
   complaintNumber: string;
   previousStatus: string;
   newStatus: string;
   note?: string;
   changedAt: Date;
 }) {
-  const { to, complaintNumber, previousStatus, newStatus, note, changedAt } = opts;
+  const {
+    complaintNumber,
+    previousStatus,
+    newStatus,
+    note,
+    changedAt,
+  } = opts;
+
+  const friendlyStatus = newStatus.replace(/_/g, " ");
   const subject = `Complaint Status Updated – ${complaintNumber}`;
 
   const body = `
@@ -108,7 +301,7 @@ export async function sendComplaintStatusUpdate(opts: {
     ${infoBox([
       { label: "Complaint ID", value: complaintNumber },
       { label: "Previous Status", value: previousStatus.replace(/_/g, " ") },
-      { label: "New Status", value: newStatus.replace(/_/g, " ") },
+      { label: "New Status", value: friendlyStatus },
       { label: "Updated On", value: changedAt.toLocaleString("en-IN") },
       ...(note ? [{ label: "Note", value: note }] : []),
     ])}
@@ -116,10 +309,35 @@ export async function sendComplaintStatusUpdate(opts: {
     ${portalFooter()}
   `;
 
-  try {
-    await sendEmail({ to, subject, text: `Complaint ${complaintNumber} status changed to ${newStatus}.`, html: wrap(body) });
-  } catch (e: any) {
-    console.error(`[EMAIL] Status update email failed for ${complaintNumber}:`, e.message);
+  if (opts.to) {
+    try {
+      await sendEmail({
+        to: opts.to,
+        subject,
+        text: `Complaint ${complaintNumber} status changed to ${friendlyStatus}.`,
+        html: wrap(body),
+      });
+    } catch (e: unknown) {
+      console.error(
+        `[EMAIL] Status update email failed for ${complaintNumber}:`,
+        e
+      );
+    }
+  }
+
+  if (opts.phone) {
+    const smsText = [
+      `Complaint ID: ${complaintNumber}`,
+      `Status updated to: ${friendlyStatus}`,
+      ...(note ? [`Note: ${note}`] : []),
+      "- Product Complaint Portal",
+    ].join(" | ");
+    const result = await sendTransactionalSMS(opts.phone, smsText);
+    if (!result.success) {
+      console.warn(
+        `[SMS] Status update SMS failed for ${complaintNumber}: ${result.error}`
+      );
+    }
   }
 }
 
