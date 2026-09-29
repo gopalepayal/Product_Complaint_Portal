@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: product-complaint-portal
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    disk:
+      name: sqlite-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: file:/data/portal.db
+      # NextAuth requires a URL and a secret in production
+      - key: NEXTAUTH_URL
+        # We will use the Render-provided URL, which is dynamic, or you can hardcode it later if you add a custom domain.
+        # But NextAuth requires it during the build or at runtime. Render exposes RENDER_EXTERNAL_URL
+        value: ${RENDER_EXTERNAL_URL}
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      # You MUST manually sync these secrets in the Render Dashboard after the blueprint is created
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: MSG91_AUTH_KEY
+        sync: false
+      - key: MSG91_OTP_TEMPLATE_ID
+        sync: false
